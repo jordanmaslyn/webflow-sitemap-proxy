@@ -8,7 +8,9 @@ const urlsToRemove: string[] = [
     "/work/*"
 ];
 
-const urlsToAdd: string[] = [];
+const urlsToAdd: string[] = [
+    "/work/project-2"
+];
 
 const newSitemapDomain: string = "";
 
@@ -23,8 +25,9 @@ export async function getUrlsToRemove(): Promise<string[]> {
 }
 
 export async function getUrlsToAdd(): Promise<string[]> {
+    const origin = await getOriginDomain();
     // Add the full URLs you want to add here
-    return urlsToAdd;
+    return urlsToAdd.map(url => `${url.startsWith("http") ? "" : origin}${url}`);
 }
 
 export async function getDomainToReplace(): Promise<string> {

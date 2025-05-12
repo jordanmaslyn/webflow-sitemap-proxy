@@ -106,23 +106,42 @@ export async function GET(request: NextRequest) {
 
 // Helper function to test if a URL matches a pattern (exact, *, or **)
 const urlMatchesPattern = (url: string, pattern: string): boolean => {
-    if (pattern.includes('**')) {
-        // Escape regex special characters first, then convert ** to .*
-        // Need to escape everything properly, including potential existing regex chars in the pattern base
-        const regexPattern = pattern
-            .replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&') // Escape standard regex chars
-            .replace(/\\\*\\\*/g, '.*'); // Replace literal '**' with '.*' (match anything)
-        return new RegExp(`^${regexPattern}$`).test(url);
-    } else if (pattern.includes('*')) {
-        // Escape regex special characters first, then convert * to [^/]+
-        // Need to escape everything properly
-        const regexPattern = pattern
-            .replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&') // Escape standard regex chars
-            .replace(/\\\*/g, '[^/]+'); // Replace literal '*' with '[^/]+' (match segment)
-        return new RegExp(`^${regexPattern}$`).test(url);
+    // If the pattern doesn't contain any glob characters, perform an exact match.
+    if (!pattern.includes('*') && !pattern.includes('**')) {
+        return url === pattern;
     }
-    // Exact match
-    return pattern === url;
+
+    let regexString = pattern;
+
+    // Step 1: Temporarily replace glob wildcards with unique, non-regex-special placeholders.
+    // Replace ** (globstar) first, as it's more encompassing and specific in its glob meaning.
+    regexString = regexString.replace(/\*\*/g, '__GLOBSTAR__');
+    // Replace * (wildcard) next.
+    regexString = regexString.replace(/\*/g, '__WILDCARD__');
+
+    // Step 2: Escape all standard regex special characters in the pattern.
+    // This will not affect the placeholders as they are simple strings without regex special characters.
+    regexString = regexString.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+
+    // Step 3: Convert the placeholders back to their regex equivalents.
+    // __GLOBSTAR__ becomes .*, which matches any sequence of characters (including slashes).
+    regexString = regexString.replace(/__GLOBSTAR__/g, '.*');
+    // __WILDCARD__ becomes [^/]+, which matches any sequence of one or more characters except a slash.
+    regexString = regexString.replace(/__WILDCARD__/g, '[^/]+');
+
+    // Step 4: Anchor the regex to match the entire URL.
+    const finalRegexPattern = `^${regexString}$`;
+
+    try {
+        const regex = new RegExp(finalRegexPattern);
+        return regex.test(url);
+    } catch (e) {
+        console.error(
+            `Failed to create or test regex. Original pattern: "${pattern}", Processed regex string: "${finalRegexPattern}"`,
+            e
+        );
+        return false; // Fallback if regex is invalid
+    }
 };
 
 // Opt out of caching for this dynamic route
