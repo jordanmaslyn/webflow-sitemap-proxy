@@ -1,31 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { XMLParser, XMLBuilder } from 'fast-xml-parser';
-
-// Define the URLs to remove from the sitemap
-// NOTE: Leave as empty array if no URLs to remove
-const urlsToRemove: string[] = [
-    `${process.env.ORIGIN_DOMAIN}/work/project-2`,
-    `${process.env.ORIGIN_DOMAIN}/work/project-3`,
-];
-
-// Define the URLs to add from the sitemap
-// NOTE: Leave as empty array if no URLs to add
-const urlsToAdd: string[] = [
-    // `${process.env.ORIGIN_DOMAIN}/work/project-999`,
-];
-
-// NOTE: Leave as empty string if no domain replacement is needed
-const domainToReplace = ''; // e.g. 'https://www.newdomain.com'   
-
-// The URL of the original Webflow sitemap
-const SOURCE_SITEMAP_URL = `${process.env.ORIGIN_DOMAIN}/sitemap.xml`;
+import { 
+    getSourceSitemapUrl, 
+    getUrlsToRemove, 
+    getUrlsToAdd, 
+    getDomainToReplace, 
+    getOriginDomain 
+} from './config'; // Adjust path if needed
 
 export async function GET(request: NextRequest) {
     try {
+        // Fetch configuration
+        const [sourceSitemapUrl, urlsToRemove, urlsToAdd, domainToReplace, originDomain] = await Promise.all([
+            getSourceSitemapUrl(),
+            getUrlsToRemove(),
+            getUrlsToAdd(),
+            getDomainToReplace(),
+            getOriginDomain()
+        ]);
+
         // Fetch the original sitemap
-        const response = await fetch(SOURCE_SITEMAP_URL);
+        const response = await fetch(sourceSitemapUrl);
         if (!response.ok) {
-            throw new Error(`Failed to fetch sitemap: ${response.statusText}`);
+            throw new Error(`Failed to fetch sitemap from ${sourceSitemapUrl}: ${response.statusText}`);
         }
         const xmlText = await response.text();
 
@@ -51,7 +48,8 @@ export async function GET(request: NextRequest) {
             // Remove URLs if needed
             if (urlsToRemove.length > 0) {
                 sitemapObject.urlset.url = sitemapObject.urlset.url.filter((entry: any) => {
-                    return entry.loc && !urlsToRemove.includes(entry.loc);
+                    // Use the new helper function for matching
+                    return entry.loc && !urlsToRemove.some(pattern => urlMatchesPattern(entry.loc, pattern));
                 });
             }
 
@@ -64,10 +62,11 @@ export async function GET(request: NextRequest) {
             }
 
             // Replace domain if needed
-            if (domainToReplace) {
+            if (domainToReplace && originDomain) { // Ensure both values are present
                 sitemapObject.urlset.url = sitemapObject.urlset.url.map((entry: any) => {
-                    if (entry.loc.includes(process.env.ORIGIN_DOMAIN)) {
-                        entry.loc = entry.loc.replace(process.env.ORIGIN_DOMAIN, domainToReplace);
+                    // Check if the URL is on the origin domain before replacing
+                    if (entry.loc && typeof entry.loc === 'string' && entry.loc.startsWith(originDomain)) {
+                        entry.loc = entry.loc.replace(originDomain, domainToReplace);
                     }
                     return entry;
                 });
@@ -104,6 +103,27 @@ export async function GET(request: NextRequest) {
         return new NextResponse('Internal Server Error', { status: 500 });
     }
 }
+
+// Helper function to test if a URL matches a pattern (exact, *, or **)
+const urlMatchesPattern = (url: string, pattern: string): boolean => {
+    if (pattern.includes('**')) {
+        // Escape regex special characters first, then convert ** to .*
+        // Need to escape everything properly, including potential existing regex chars in the pattern base
+        const regexPattern = pattern
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&') // Escape standard regex chars
+            .replace(/\\\*\\\*/g, '.*'); // Replace literal '**' with '.*' (match anything)
+        return new RegExp(`^${regexPattern}$`).test(url);
+    } else if (pattern.includes('*')) {
+        // Escape regex special characters first, then convert * to [^/]+
+        // Need to escape everything properly
+        const regexPattern = pattern
+            .replace(/[.*+?^${}()|[\]\\]/g, '\\\\$&') // Escape standard regex chars
+            .replace(/\\\*/g, '[^/]+'); // Replace literal '*' with '[^/]+' (match segment)
+        return new RegExp(`^${regexPattern}$`).test(url);
+    }
+    // Exact match
+    return pattern === url;
+};
 
 // Opt out of caching for this dynamic route
 export const dynamic = 'force-dynamic'; 
