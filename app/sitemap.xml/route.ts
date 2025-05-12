@@ -14,10 +14,10 @@ const urlsToAdd: string[] = [
     // `${process.env.ORIGIN_DOMAIN}/work/project-999`,
 ];
 
-const domainToReplace = '';
+// NOTE: Leave as empty string if no domain replacement is needed
+const domainToReplace = ''; // e.g. 'https://www.newdomain.com'   
 
 // The URL of the original Webflow sitemap
-// NOTE: Leave as empty string if no domain replacement is needed
 const SOURCE_SITEMAP_URL = `${process.env.ORIGIN_DOMAIN}/sitemap.xml`;
 
 export async function GET(request: NextRequest) {
@@ -48,17 +48,30 @@ export async function GET(request: NextRequest) {
 
         // Ensure urlset and url properties exist
         if (sitemapObject.urlset && sitemapObject.urlset.url) {
-            // Filter out the URLs specified in urlsToRemove
-            // Add the URLs specified in urlsToAdd
-            // Replace the domain of the URLs specified in urlsToAdd with the domain specified in domainToReplace
-            sitemapObject.urlset.url = [...sitemapObject.urlset.url.filter((entry: any) => {
-                return entry.loc && !urlsToRemove.includes(entry.loc);
-            }), ...urlsToAdd.map((url: string) => ({ loc: url }))].map((entry: any) => {
-                if (domainToReplace && entry.loc.includes(process.env.ORIGIN_DOMAIN)) {
-                    entry.loc = entry.loc.replace(process.env.ORIGIN_DOMAIN, domainToReplace);
-                }
-                return entry;
-            });
+            // Remove URLs if needed
+            if (urlsToRemove.length > 0) {
+                sitemapObject.urlset.url = sitemapObject.urlset.url.filter((entry: any) => {
+                    return entry.loc && !urlsToRemove.includes(entry.loc);
+                });
+            }
+
+            // Add new URLs if needed
+            if (urlsToAdd.length > 0) {
+                sitemapObject.urlset.url = [
+                    ...sitemapObject.urlset.url,
+                    ...urlsToAdd.map((url: string) => ({ loc: url }))
+                ];
+            }
+
+            // Replace domain if needed
+            if (domainToReplace) {
+                sitemapObject.urlset.url = sitemapObject.urlset.url.map((entry: any) => {
+                    if (entry.loc.includes(process.env.ORIGIN_DOMAIN)) {
+                        entry.loc = entry.loc.replace(process.env.ORIGIN_DOMAIN, domainToReplace);
+                    }
+                    return entry;
+                });
+            }
         } else {
             console.warn('Sitemap structure might be unexpected or empty.');
             // If the structure is unexpected, return the original sitemap or an empty one
@@ -76,7 +89,6 @@ export async function GET(request: NextRequest) {
 
         // Build the modified XML
         const modifiedXml = builder.build(sitemapObject);
-        console.log(modifiedXml);
 
         // Return the modified sitemap with the correct content type
         return new NextResponse(modifiedXml, {
